@@ -20,11 +20,15 @@ export interface GameResult {
   errors: number;
   /** karakter target yang paling sering salah diketik (karakter → jumlah) */
   missed: Record<string, number>;
+  /** waktu reaksi rata-rata per karakter (ms) — metrik ritme ketikan */
+  avgKeyMs: number;
 }
 
 interface Props {
   mod: ModuleDef;
   cfg: AgeCfg;
+  /** mode quest: tanpa ancaman hiu & nyawa tak terbatas (project bebas-salah) */
+  zen?: boolean;
   onDone: (r: GameResult) => void;
   onExit: () => void;
 }
@@ -46,20 +50,25 @@ interface G {
   pauseAccum: number;
   pauseAt: number;
   missed: Record<string, number>;
+  /** ritme: waktu reaksi per karakter (ms), dibatasi agar outlier tidak mendistorsi */
+  keyTimes: number[];
+  lastKeyAt: number;
 }
 
 const fresh = (): G => ({
   lineIdx: 0, charIdx: 0, combo: 0, maxCombo: 0, correct: 0, errors: 0,
   score: 0, threat: 0, lives: 3, status: "count", startAt: 0, pauseAccum: 0, pauseAt: 0,
-  missed: {},
+  missed: {}, keyTimes: [], lastKeyAt: 0,
 });
 
 /* ambang WPM untuk bonus kecepatan (skor tidak lagi buta terhadap kecepatan) */
 const SPEED_BONUS_WPM = 40;
+/* ambang OVERDRIVE: combo ≥ 25 → skor per karakter ×2 selama combo bertahan */
+const OVERDRIVE_COMBO = 25;
 
 const fmt = (s: number) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
 
-export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
+export default function TypingGame({ mod, cfg, zen = false, onDone, onExit }: Props) {
   const lines = useMemo(() => tokenize(mod.code, mod.lang), [mod]);
   const gref = useRef<G>(fresh());
   const [, force] = useReducer((x: number) => x + 1, 0);
@@ -95,13 +104,27 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
     const acc = total > 0 ? Math.round((gg.correct / total) * 100) : 100;
     const t = Math.max(5, elapsedSec());
     const wpm = Math.round(gg.correct / 5 / (t / 60));
-    const stars = won ? (acc >= 95 ? 3 : acc >= 85 ? 2 : 1) : 0;
-    return { won, score: gg.score, accuracy: acc, wpm, maxCombo: gg.maxCombo, stars, timeSec: Math.round(t), correct: gg.correct, errors: gg.errors, missed: { ...gg.missed } };
+    /* bintang berbasis akurasi DAN kecepatan — memaksa siswa menjaga ritme,
+       bukan sekadar lambat-tapi-bersih atau cepat-berantakan */
+    const speedOk = wpm >= cfg.starWpm;
+    const stars = won ? (acc >= 95 && speedOk ? 3 : acc >= 85 ? 2 : 1) : 0;
+    const avgKeyMs = gg.keyTimes.length
+      ? Math.round(gg.keyTimes.reduce((a, b) => a + b, 0) / gg.keyTimes.length)
+      : 0;
+    return { won, score: gg.score, accuracy: acc, wpm, maxCombo: gg.maxCombo, stars, timeSec: Math.round(t), correct: gg.correct, errors: gg.errors, missed: { ...gg.missed }, avgKeyMs };
   };
 
   const hurt = () => {
     const gg = gref.current;
     if (gg.status !== "play") return;
+    if (zen) {
+      /* mode quest project: salah hanya mematahkan combo & menggetarkan layar */
+      gg.combo = 0;
+      setFlash((f) => f + 1);
+      sfx.hurt();
+      force();
+      return;
+    }
     gg.lives -= 1;
     gg.threat = 0;
     gg.combo = 0;
@@ -114,14 +137,23 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
     force();
   };
 
-  const win = () => {
+  /** tombol menyerah — dipakai quest juggling agar siswa bisa mengulang cepat */
+  const giveUp = () => {
     const gg = gref.current;
-    gg.status = "won";
-    sfx.win();
+    if (gg.status !== "play" && gg.status !== "pause") return;
+    finish(false);
+  };
+
+  const finish = (won: boolean) => {
+    const gg = gref.current;
+    gg.status = won ? "won" : "dead";
+    if (won) sfx.win(); else sfx.lose();
     force();
-    const r = computeResult(true);
+    const r = computeResult(won);
     window.setTimeout(() => onDoneRef.current(r), 1500);
   };
+
+  const win = () => finish(true);
 
   const spawnParticle = (ci: number, txt: string) => {
     const box = arenaRef.current;
@@ -151,8 +183,9 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
     return () => window.clearTimeout(t);
   }, [count]);
 
-  /* ===== loop ancaman hiu ===== */
+  /* ===== loop ancaman hiu (zen/project quest: tanpa ancaman) ===== */
   useEffect(() => {
+    if (zen) return;
     const iv = window.setInterval(() => {
       const gg = gref.current;
       if (gg.status !== "play") return;
@@ -162,7 +195,7 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
     }, 100);
     return () => window.clearInterval(iv);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [zen]);
 
   /* ===== keyboard ===== */
   useEffect(() => {
@@ -186,6 +219,8 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
         e.preventDefault();
         if (gg.charIdx > 0) {
           gg.charIdx -= 1;
+          gg.lastKeyAt = 0; /* jeda koreksi tidak dihitung sebagai ritme */
+          sfx.back();
           force();
         }
         return;
@@ -198,17 +233,32 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
       const tok = line[gg.charIdx];
 
       if (e.key === tok.ch) {
+        /* ritme: catat waktu reaksi antar-key (clamp 30–2500ms agar jeda berpikir tak merusak rata-rata) */
+        const now = performance.now();
+        if (gg.lastKeyAt) {
+          const dt = Math.min(2500, Math.max(30, now - gg.lastKeyAt));
+          gg.keyTimes.push(dt);
+        }
+        gg.lastKeyAt = now;
+
         gg.correct += 1;
         gg.combo += 1;
         gg.maxCombo = Math.max(gg.maxCombo, gg.combo);
         const mult = 1 + Math.min(gg.combo, 100) * 0.02;
+        const overdrive = gg.combo >= OVERDRIVE_COMBO ? 2 : 1;
         const el = elapsedSec();
         const liveWpm = el > 5 ? gg.correct / 5 / (el / 60) : 0;
-        const gain = Math.round(10 * mult) + (liveWpm >= SPEED_BONUS_WPM ? 3 : 0);
+        const gain = Math.round(10 * mult * overdrive) + (liveWpm >= SPEED_BONUS_WPM ? 3 : 0);
         gg.score += gain;
         sfx.key(gg.combo);
         spawnParticle(gg.charIdx, `+${gain}`);
-        if (gg.combo % 10 === 0) {
+        if (gg.combo === OVERDRIVE_COMBO) {
+          setComboPop((p) => p + 1);
+          sfx.star();
+          const oid = ++idRef.current;
+          setToast({ id: oid, txt: "⚡ OVERDRIVE! Skor ×2" });
+          window.setTimeout(() => setToast((t) => (t && t.id === oid ? null : t), ), 900);
+        } else if (gg.combo % 10 === 0) {
           setComboPop((p) => p + 1);
           sfx.star();
         }
@@ -230,7 +280,7 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
       } else {
         gg.errors += 1;
         gg.combo = 0;
-        gg.threat = Math.min(100, gg.threat + cfg.missPenalty);
+        if (!zen) gg.threat = Math.min(100, gg.threat + cfg.missPenalty);
         gg.missed[tok.ch] = (gg.missed[tok.ch] ?? 0) + 1;
         sfx.err();
         setShake((s) => s + 1);
@@ -238,7 +288,7 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
         const gid = ++idRef.current;
         setGhost({ id: gid, ch: e.key });
         window.setTimeout(() => setGhost((x) => (x && x.id === gid ? null : x)), 320);
-        if (gg.threat >= 100) {
+        if (!zen && gg.threat >= 100) {
           hurt();
           return;
         }
@@ -315,7 +365,7 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
           </button>
           <div className="leading-tight mr-auto">
             <p className="text-[10px] font-extrabold tracking-[0.2em] uppercase" style={{ color: mod.color }}>
-              Misi 0{mod.num} • {mod.practiceTitle}
+              {zen ? `Quest • ${mod.practiceTitle}` : `Misi 0{mod.num} • ${mod.practiceTitle}`}
             </p>
             <p className="font-display font-bold text-sm">Baris {Math.min(g.lineIdx + 1, lines.length)}/{lines.length}</p>
           </div>
@@ -323,34 +373,53 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
           <span
             className="chip font-display"
             style={{ color: accColor, borderColor: accColor }}
-            title="Syarat bintang: ≥95% = 3 bintang, ≥85% = 2 bintang"
+            title={`Syarat bintang 3: akurasi ≥95% dan kecepatan ≥${cfg.starWpm} WPM`}
           >
             <IconTarget size={14} /> {liveAcc}%
+          </span>
+          <span className="chip !text-[var(--cyan)] font-display" title="Kecepatan ketik langsung (kata per menit)">
+            <IconTimer size={14} /> {(() => { const el = elapsedSec(); return el > 5 ? Math.round(g.correct / 5 / (el / 60)) : 0; })()} WPM
           </span>
           <span className="chip !text-[var(--amber)] font-display text-base !px-3.5">
             <IconBolt size={15} /> {g.score}
           </span>
           {g.combo >= 2 && (
-            <span key={comboPop} className="chip !text-[var(--teal)] !border-[rgba(46,230,200,0.45)] anim-pop font-display">
-              COMBO ×{g.combo}
+            <span key={comboPop} className={`chip font-display anim-pop ${g.combo >= OVERDRIVE_COMBO ? "!text-[#fff] !border-[var(--accent)] overdrive-chip" : "!text-[var(--teal)] !border-[rgba(46,230,200,0.45)]"}`}>
+              {g.combo >= OVERDRIVE_COMBO ? "⚡ OVERDRIVE ×2" : `COMBO ×${g.combo}`}
             </span>
           )}
           <span className="flex items-center gap-1">
-            {[0, 1, 2].map((i) => (
-              <IconHeart key={i} size={20} className={i < g.lives ? "text-[var(--coral)]" : "text-[rgba(126,196,236,0.18)]"} />
-            ))}
+            {zen ? (
+              <button
+                className="btn btn-ghost !px-3 !py-1.5 text-[11px] font-extrabold"
+                onClick={giveUp}
+                title="Akhiri run ini dan nilai ulang dari awal"
+              >
+                Akhiri Run
+              </button>
+            ) : (
+              [0, 1, 2].map((i) => (
+                <IconHeart key={i} size={20} className={i < g.lives ? "text-[var(--coral)]" : "text-[rgba(126,196,236,0.18)]"} />
+              ))
+            )}
           </span>
           <button className="btn btn-ghost !px-3 !py-2" onClick={togglePause} aria-label="Jeda">
             {g.status === "pause" ? <IconPlay size={16} /> : <IconPause size={16} />}
           </button>
         </div>
-        {/* bar ancaman */}
+        {/* bar ancaman — pada quest project diganti label mode santai */}
         <div className="max-w-5xl mx-auto px-4 pb-2.5 flex items-center gap-3">
-          <span className="text-[10px] font-extrabold tracking-[0.18em] uppercase text-[var(--dim)] whitespace-nowrap">Ancaman Hiu</span>
-          <div className="flex-1 h-2.5 rounded-full bg-[rgba(6,24,41,0.9)] border border-[var(--line-soft)] overflow-hidden">
-            <div className="h-full rounded-full transition-[width] duration-150" style={{ width: `${g.threat}%`, background: `linear-gradient(90deg, var(--teal), ${threatColor})` }} />
-          </div>
-          <span className="font-code text-xs font-bold tabular-nums" style={{ color: threatColor }}>{Math.round(g.threat)}%</span>
+          <span className="text-[10px] font-extrabold tracking-[0.18em] uppercase text-[var(--dim)] whitespace-nowrap">
+            {zen ? "Mode Proyek — Tanpa Ancaman" : "Ancaman Hiu"}
+          </span>
+          {!zen && (
+            <>
+              <div className="flex-1 h-2.5 rounded-full bg-[rgba(6,24,41,0.9)] border border-[var(--line-soft)] overflow-hidden">
+                <div className="h-full rounded-full transition-[width] duration-150" style={{ width: `${g.threat}%`, background: `linear-gradient(90deg, var(--teal), ${threatColor})` }} />
+              </div>
+              <span className="font-code text-xs font-bold tabular-nums" style={{ color: threatColor }}>{Math.round(g.threat)}%</span>
+            </>
+          )}
         </div>
       </header>
 
@@ -452,7 +521,7 @@ export default function TypingGame({ mod, cfg, onDone, onExit }: Props) {
 
         <p className="text-center text-xs text-[var(--faint)] font-semibold">
           Ketik persis seperti di atas • <span className="keycap !text-[11px] !h-6 !min-w-6">Backspace</span> mengoreksi •{" "}
-          <span className="keycap !text-[11px] !h-6 !min-w-6">Esc</span> jeda
+          <span className="keycap !text-[11px] !h-6 !min-w-6">Esc</span> jeda • Combo ≥{OVERDRIVE_COMBO} = ⚡ skor ×2 • Bintang 3 butuh akurasi ≥95% &amp; ≥{cfg.starWpm} WPM
         </p>
       </main>
 

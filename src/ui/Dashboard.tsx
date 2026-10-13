@@ -20,7 +20,15 @@ interface Props {
   onMateri: (id: string) => void;
   onPractice: (id: string) => void;
   /** buka Materi HTML berbasis dokumen .md per pertemuan */
-  onMateriHtml?: () => void;
+  onMateriHtml?: (no?: number) => void;
+  /** progres kurikulum P1–P16 */
+  lessonsDone?: number;
+  lessonTotal?: number;
+  nextLessonNo?: number | null;
+  onLessonPractice?: (no: number) => void;
+  /** quest mingguan: status tuntas per quest id + aksi mulai quest */
+  questStatus?: Record<string, boolean>;
+  onQuest?: (questId: string) => void;
   onToggleSound: () => void;
   onResetProfile: () => void;
 }
@@ -191,9 +199,9 @@ export default function Dashboard({ save, cfg, onMateri, onPractice, onMateriHtm
               <div className="hud-stat-box p-3.5 flex flex-col justify-between">
                 <div className="flex items-center justify-between">
                   <span className="font-display font-extrabold text-2xl text-white leading-none">
-                    {save.stats.bestWpm || 20}
+                    {save.stats.bestWpm || "—"}
                   </span>
-                  <MiniSpeedometer val={save.stats.bestWpm || 20} max={100} />
+                  <MiniSpeedometer val={save.stats.bestWpm ?? 0} max={100} />
                 </div>
                 <div className="flex items-center gap-1.5 mt-2">
                   <IconTimer size={13} className="text-[var(--cyan)]" />
@@ -353,10 +361,10 @@ export default function Dashboard({ save, cfg, onMateri, onPractice, onMateriHtm
                                     )}
                                   </span>
                                   <span className="hud-chip text-white font-semibold">
-                                    {prog.best?.score ?? 4453} poin
+                                    {prog.best ? `${prog.best.score} poin` : "belum ada rekor"}
                                   </span>
                                   <span className="hud-chip !text-[var(--teal)] font-bold">
-                                    {prog.best?.wpm ?? 20} WPM
+                                    {prog.best ? `${prog.best.wpm} WPM` : "— WPM"}
                                   </span>
                                 </>
                               )}

@@ -120,7 +120,7 @@ export default function Results({ mod, cfg, result, xpGained, coinsGained, rankU
           <p className="text-xs font-extrabold tracking-[0.3em] uppercase text-[var(--dim)]">Skor Akhir</p>
 
           {/* statistik */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2.5 max-w-2xl mx-auto mt-7">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2.5 max-w-3xl mx-auto mt-7">
             {stats.map((s, i) => (
               <div key={i} className="panel-flat px-3 py-3.5 anim-fadeUp" style={{ animationDelay: `${0.2 + i * 0.1}s` }}>
                 <span className="inline-grid place-items-center w-8 h-8 rounded-lg mb-1.5" style={{ color: s.c, background: `${"rgba(255,255,255,0.05)"}`, border: `1px solid var(--line-soft)` }}>
@@ -130,6 +130,16 @@ export default function Results({ mod, cfg, result, xpGained, coinsGained, rankU
                 <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-[var(--faint)] mt-1">{s.l}</p>
               </div>
             ))}
+            {/* ritme ketikan — metrik konsistensi antar-tekanan */}
+            <div className="panel-flat px-3 py-3.5 anim-fadeUp" style={{ animationDelay: `${0.2 + stats.length * 0.1}s` }}>
+              <span className="inline-grid place-items-center w-8 h-8 rounded-lg mb-1.5 text-[var(--dim)]" style={{ background: "rgba(255,255,255,0.05)", border: "1px solid var(--line-soft)" }}>
+                <IconTimer size={17} />
+              </span>
+              <p className="font-display font-extrabold text-xl leading-none text-[var(--dim)]">
+                {r.avgKeyMs > 0 ? `${(r.avgKeyMs / 1000).toFixed(2)}s` : "—"}
+              </p>
+              <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-[var(--faint)] mt-1">Ritme / Key</p>
+            </div>
           </div>
           <p className="text-xs text-[var(--faint)] font-semibold mt-3">
             {r.correct} ketikan benar • {r.errors} kesalahan {r.errors === 0 && "— tanpa cela!"}
@@ -142,7 +152,7 @@ export default function Results({ mod, cfg, result, xpGained, coinsGained, rankU
               {[
                 { ok: true, t: "Selesaikan misi — 1 bintang" },
                 { ok: r.accuracy >= 85, t: `Akurasi ≥ 85% — 2 bintang (kamu ${r.accuracy}%)` },
-                { ok: r.accuracy >= 95, t: `Akurasi ≥ 95% — 3 bintang (kamu ${r.accuracy}%)` },
+                { ok: r.accuracy >= 95 && r.wpm >= cfg.starWpm, t: `Akurasi ≥ 95% & ≥ ${cfg.starWpm} WPM — 3 bintang (kamu ${r.accuracy}% / ${r.wpm} WPM)` },
               ].map((c, i) => (
                 <p key={i} className="text-xs font-semibold flex items-center gap-2 py-0.5" style={{ color: c.ok ? "var(--teal)" : "var(--dim)" }}>
                   {c.ok ? <IconCheck size={13} /> : <IconX size={13} />} {c.t}

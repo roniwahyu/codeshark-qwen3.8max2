@@ -3,11 +3,13 @@
    /content/html/*.md sebagai materi utama. Penampilannya mengikuti tema
    gambar HUD (home_hud.jfif / dashboard_hud.jfif): panel biru dalam dengan
    bracket sudut cyan, aksen teal/amber/koral, font display Baloo & mono. */
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CURRICULUM, PHASE_COLOR, getLesson } from "../data/curriculum";
 import type { Lesson } from "../data/curriculum";
 import { HTML_DOCS, getHtmlDoc } from "../data/materiHtml";
 import type { MdDoc } from "../data/materiHtml";
+import { lessonModId } from "../data/lessons";
+import type { SaveData } from "../lib/storage";
 import { parseMd } from "../lib/markdown";
 import type { MdBlock } from "../lib/markdown";
 import { getFigure } from "../lib/figures";
@@ -21,7 +23,12 @@ import {
 const C_HTML = PHASE_COLOR.HTML;
 
 interface Props {
+  /** dokumen yang dibuka pertama kali (dari Dashboard "Lanjutkan Pertemuan n") */
+  initialNo?: number;
+  save: SaveData;
   onPractice: (id: string) => void;
+  /** dipanggil saat siswa membuka/menyelesaikan membaca sebuah dokumen .md — +XP sekali per dokumen */
+  onRead?: (no: number) => void;
   onExit: () => void;
 }
 
@@ -126,10 +133,10 @@ function MdView({ blocks }: { blocks: MdBlock[] }) {
   );
 }
 
-/* ---------- latihan ketik pertemuan (mengacu lesson curriculum) ---------- */
+/* ---------- latihan ketik pertemuan (modul khusus fragmen kode pertemuan) ---------- */
 function PracticeCard({ l, doc, onPractice }: { l: Lesson; doc: MdDoc; onPractice: (id: string) => void }) {
   if (!l.practice) return null;
-  const modId = l.phase === "HTML" ? "html" : l.phase === "CSS" ? "css" : "js";
+  const modId = lessonModId(l.no); // skor tercatat PER PERTEMUAN (save.lessons[l.no])
   return (
     <section className="md-practice hud-panel p-5 sm:p-6 anim-fadeUp">
       <div className="flex items-center gap-2.5 mb-2 flex-wrap">
@@ -153,9 +160,10 @@ function PracticeCard({ l, doc, onPractice }: { l: Lesson; doc: MdDoc; onPractic
 }
 
 /* ---------- layar utama ---------- */
-export default function MateriHtml({ onPractice, onExit }: Props) {
+export default function MateriHtml({ initialNo, save, onPractice, onRead, onExit }: Props) {
   const htmlNos = CURRICULUM.filter((l) => l.phase === "HTML").map((l) => l.no);
-  const [no, setNo] = useState(htmlNos[0]);
+  const clampNo = (n: number) => Math.min(htmlNos[htmlNos.length - 1], Math.max(htmlNos[0], n));
+  const [no, setNo] = useState(clampNo(initialNo ?? htmlNos[0]));
   const doc = getHtmlDoc(no)!;
   const lesson = getLesson(no);
   const blocks = useMemo(
@@ -163,10 +171,22 @@ export default function MateriHtml({ onPractice, onExit }: Props) {
     [doc],
   );
 
+  // tandai dokumen terbaca (+XP sekali per dokumen) saat siswa berpindah/membuka dokumen
+  const readRef = useRef(no);
+  useEffect(() => {
+    if (readRef.current !== no) {
+      readRef.current = no;
+      onRead?.(no);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [no]);
+
+  const isRead = (n: number) => save.lessons[String(n)]?.materiDone ?? false;
+
   const idxInPhase = htmlNos.indexOf(no);
   const go = (n: number) => {
     sfx.click();
-    setNo(Math.min(htmlNos[htmlNos.length - 1], Math.max(htmlNos[0], n)));
+    setNo(clampNo(n));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -215,7 +235,8 @@ export default function MateriHtml({ onPractice, onExit }: Props) {
                 }}
               >
                 P{d.no}
-                <span className="hidden sm:inline normal-case font-bold">{d.title.split("—")[1]?.trim().slice(0, 22) ?? d.title}</span>
+                {isRead(d.no) && <IconCheck size={12} className="text-[var(--teal)]" aria-label="sudah dibaca" />}
+                <span className="hidden sm:inline normal-case font-bold">{d.title.split("—")[1]?.trim().slice(0, 18) ?? d.title}</span>
               </button>
             );
           })}

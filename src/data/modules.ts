@@ -13,6 +13,7 @@ export interface AgeCfg {
   relief: number; // penurunan ancaman saat 1 baris selesai
   hints: boolean; // tampilkan petunjuk karakter berikutnya
   arenaSize: string; // kelas ukuran font arena
+  starWpm: number; // ambang WPM minimum untuk bintang 3 (bersama akurasi ≥95%)
   cheers: string[];
 }
 
@@ -28,6 +29,7 @@ export const AGE_GROUPS: Record<AgeId, AgeCfg> = {
     relief: 28,
     hints: true,
     arenaSize: "text-lg md:text-xl",
+    starWpm: 12,
     cheers: ["Wih, keren!", "Kamu jago!", "Mantap sekali!", "Terus begitu!", "Luar biasa!"],
   },
   teen: {
@@ -41,6 +43,7 @@ export const AGE_GROUPS: Record<AgeId, AgeCfg> = {
     relief: 24,
     hints: true,
     arenaSize: "text-base md:text-lg",
+    starWpm: 20,
     cheers: ["Nice!", "Gas terus!", "Combo mantap!", "Keren banget!", "Jernih!"],
   },
   senior: {
@@ -54,6 +57,7 @@ export const AGE_GROUPS: Record<AgeId, AgeCfg> = {
     relief: 21,
     hints: false,
     arenaSize: "text-base md:text-lg",
+    starWpm: 28,
     cheers: ["Solid!", "Presisi!", "Bersih!", "Efisien!", "On fire!"],
   },
   academy: {
@@ -67,6 +71,7 @@ export const AGE_GROUPS: Record<AgeId, AgeCfg> = {
     relief: 18,
     hints: false,
     arenaSize: "text-sm md:text-base",
+    starWpm: 35,
     cheers: ["Clean code!", "Efisien.", "Terstruktur.", "Rapi sekali.", "Level dewa."],
   },
 };

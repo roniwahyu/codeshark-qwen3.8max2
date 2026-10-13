@@ -25,6 +25,15 @@ export interface ModProg {
   completions: number;
 }
 
+/** progres belajar per pertemuan kurikulum (P1–P16 + UAS) */
+export interface LessonProg {
+  materiDone: boolean;
+  quizXp: number;
+  /** skor terbaik pada gladi ketik pertemuan ini */
+  best?: Best;
+  completions: number;
+}
+
 export interface Stats {
   games: number;
   wins: number;
@@ -39,6 +48,10 @@ export interface SaveData {
   xp: number;
   coins: number;
   modules: Record<string, ModProg>;
+  /** kunci = nomor pertemuan (string agar aman di JSON) */
+  lessons: Record<string, LessonProg>;
+  /** quest mingguan yang sudah tuntas (id "q{no}-{kind}") */
+  quests: string[];
   stats: Stats;
 }
 
@@ -49,6 +62,8 @@ export const defaultSave = (): SaveData => ({
   xp: 0,
   coins: 0,
   modules: {},
+  lessons: {},
+  quests: [],
   stats: { games: 0, wins: 0, bestWpm: 0, bestCombo: 0, keystrokes: 0, correct: 0 },
 });
 
@@ -63,6 +78,8 @@ export function loadSave(): SaveData {
       ...d,
       stats: { ...base.stats, ...(d.stats || {}) },
       modules: { ...(d.modules || {}) },
+      lessons: { ...(d.lessons || {}) },
+      quests: Array.isArray(d.quests) ? d.quests : [],
     };
   } catch {
     return defaultSave();
