@@ -4,6 +4,7 @@ import { rankOf } from "../lib/storage";
 import type { AgeCfg, ModuleDef } from "../data/modules";
 import { MODULES } from "../data/modules";
 import { HTML_DOCS } from "../data/materiHtml";
+import { questsForLesson } from "../data/quests";
 import { sfx } from "../lib/audio";
 import {
   IconFin, IconBolt, IconCoin, IconBook, IconKeyboard, IconStar, IconStarLine,
@@ -60,7 +61,7 @@ function useReveal() {
   return ref;
 }
 
-export default function Dashboard({ save, cfg, onMateri, onPractice, onMateriHtml, onToggleSound, onResetProfile }: Props) {
+export default function Dashboard({ save, cfg, onMateri, onPractice, onMateriHtml, lessonsDone, lessonTotal, nextLessonNo, onLessonPractice, questStatus, onQuest, onToggleSound, onResetProfile }: Props) {
   const revealRef = useReveal();
   const [preview, setPreview] = useState<ModuleDef | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
@@ -246,6 +247,117 @@ export default function Dashboard({ save, cfg, onMateri, onPractice, onMateriHtm
             </div>
           </div>
         </section>
+
+        {/* ============ PROGRES KURIKULUM P1–P16 + QUEST MINGGUAN ============ */}
+        {(lessonsDone != null || nextLessonNo != null) && (
+          <section className="mt-12">
+            <div className="flex items-center gap-4 mb-7 reveal">
+              <h2 className="font-display font-extrabold text-2xl md:text-3xl text-white tracking-tight shrink-0">
+                Kurikulum Mingguan
+              </h2>
+              <span className="h-[1px] flex-1 bg-[rgba(69,198,255,0.2)]" />
+              <span className="text-xs font-bold text-[var(--dim)] tracking-wide shrink-0 hidden sm:inline">
+                Target: baca materi → selesaikan 3 quest minggu ini
+              </span>
+            </div>
+
+            <div className="grid lg:grid-cols-[minmax(0,1fr)_320px] gap-5">
+              {/* Ringkasan kurikulum + CTA lanjutkan */}
+              <div className="hud-panel p-5 sm:p-6 reveal">
+                <div className="flex items-center justify-between gap-3 flex-wrap">
+                  <p className="font-display font-extrabold text-lg text-white">
+                    Progres Pertemuan
+                  </p>
+                  <span className="chip !text-[var(--teal)]">
+                    {lessonsDone ?? 0}/{lessonTotal ?? 16} gladi tuntas
+                  </span>
+                </div>
+                <div className="h-2.5 rounded-full bg-[rgba(126,196,236,0.12)] overflow-hidden mt-3 mb-4">
+                  <div
+                    className="h-full rounded-full transition-all duration-700"
+                    style={{
+                      width: `${Math.max(3, Math.round(((lessonsDone ?? 0) / (lessonTotal ?? 16)) * 100))}%`,
+                      background: "linear-gradient(90deg,#45c6ff,#2ee6c8)",
+                      boxShadow: "0 0 10px rgba(46,230,200,.6)",
+                    }}
+                  />
+                </div>
+                {nextLessonNo != null ? (
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <button
+                      className="btn btn-amber flex-1 justify-center !py-3"
+                      onClick={() => { sfx.click(); onLessonPractice?.(nextLessonNo); }}
+                    >
+                      <IconKeyboard size={16} /> Lanjutkan Pertemuan {nextLessonNo} — Drill Ketik
+                    </button>
+                    {onMateriHtml && nextLessonNo <= 6 && (
+                      <button
+                        className="btn btn-ghost !py-3 justify-center"
+                        onClick={() => { sfx.click(); onMateriHtml(nextLessonNo); }}
+                      >
+                        <IconBook size={15} /> Baca Materi P{nextLessonNo}
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-sm text-[var(--teal)] font-bold flex items-center gap-2">
+                    <IconCheck size={16} /> Semua gladi pertemuan selesai! Kejar bintang tambahan di misi favoritmu.
+                  </p>
+                )}
+              </div>
+
+              {/* Quest pertemuan berikutnya */}
+              {nextLessonNo != null && (
+                <aside className="hud-panel p-5 reveal" aria-label={`Quest Pertemuan ${nextLessonNo}`}>
+                  <p className="text-[10px] font-extrabold tracking-[0.22em] uppercase text-[var(--faint)]">
+                    Quest Minggu Ini
+                  </p>
+                  <h3 className="font-display font-extrabold text-lg text-white mt-1 mb-3">
+                    Pertemuan {nextLessonNo}
+                  </h3>
+                  <ul className="space-y-2.5">
+                    {questsForLesson(nextLessonNo).map((q) => {
+                      const done = questStatus?.[q.id] ?? false;
+                      return (
+                        <li key={q.id}>
+                          <button
+                            type="button"
+                            disabled={!onQuest}
+                            onClick={() => { sfx.click(); onQuest?.(q.id); }}
+                            title={q.desc}
+                            className={`w-full text-left rounded-xl border px-3.5 py-2.5 transition-all flex items-start gap-2.5 ${
+                              done
+                                ? "border-[rgba(46,230,200,0.45)] bg-[rgba(46,230,200,0.08)] cursor-default"
+                                : "border-[rgba(126,196,236,0.16)] bg-[rgba(255,255,255,0.03)] hover:border-[var(--amber)] hover:bg-[rgba(255,194,71,0.06)]"
+                            }`}
+                          >
+                            <span
+                              className={`w-6 h-6 shrink-0 rounded-lg grid place-items-center mt-0.5 ${
+                                done ? "bg-[var(--teal)] text-[#04222b]" : "bg-[rgba(255,194,71,0.15)] text-[var(--amber)]"
+                              }`}
+                            >
+                              {done ? <IconCheck size={13} /> : q.kind === "juggling" ? <IconBolt size={13} /> : <IconTarget size={13} />}
+                            </span>
+                            <span className="min-w-0">
+                              <span className="block text-[11px] font-extrabold uppercase tracking-wider" style={{ color: done ? "var(--teal)" : "var(--amber)" }}>
+                                {q.kind}
+                              </span>
+                              <span className="block text-sm font-display font-bold text-white leading-tight">{q.title}</span>
+                              <span className="block text-[11px] text-[var(--dim)] mt-0.5 line-clamp-2">{q.desc}</span>
+                              <span className="block text-[10px] text-[var(--faint)] mt-1 font-bold">
+                                Hadiah: {q.xp} XP · {q.coins} koin {done ? "— ✓ TUNTAS" : ""}
+                              </span>
+                            </span>
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </aside>
+              )}
+            </div>
+          </section>
+        )}
 
         {/* ============ PETA MISI SAMUDRA ============ */}
         <section className="mt-12">
